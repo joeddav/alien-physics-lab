@@ -1,0 +1,18 @@
+[project]
+name = "alien-physics-lab"
+version = "0.1.0"
+description = "A tiny RLVR-style alien physics lab for active experimental reasoning."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+alien-lab = "alien_physics_lab.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
