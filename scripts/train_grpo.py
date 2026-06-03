@@ -173,7 +173,9 @@ def main() -> None:
     ap.add_argument("--gpu-mem-util", type=float, default=None)
     ap.add_argument("--measurement-noise", type=float, default=None, help="Hidden world noise (default 0.03).")
     ap.add_argument("--measurement-bonus", type=float, default=None,
-                    help="Override the flat measurement-reward bonus (e.g. 1.5 to overfit/sanity-check the reward).")
+                    help="Override the measurement-reward CAP (asymptote of the geometric reward; default 0.5).")
+    ap.add_argument("--measurement-decay", type=float, default=None,
+                    help="Geometric decay r for the measurement reward (default 0.7; lower => saturates sooner).")
     ap.add_argument("--save-final", dest="save_final", action="store_true", default=True)
     ap.add_argument("--no-save-final", dest="save_final", action="store_false")
     ap.add_argument("--train-rows", type=int, default=None)
@@ -212,8 +214,11 @@ def main() -> None:
     )
 
     if args.measurement_bonus is not None:
-        _grpo_env.MEASUREMENT_BONUS = args.measurement_bonus
-        print(f"[train_grpo] measurement bonus overridden -> {args.measurement_bonus}")
+        _grpo_env.MEASUREMENT_REWARD_CAP = args.measurement_bonus
+        print(f"[train_grpo] measurement reward cap -> {args.measurement_bonus}")
+    if args.measurement_decay is not None:
+        _grpo_env.MEASUREMENT_DECAY = args.measurement_decay
+        print(f"[train_grpo] measurement decay -> {args.measurement_decay}")
 
     overrides = {
         "learning_rate": args.lr,

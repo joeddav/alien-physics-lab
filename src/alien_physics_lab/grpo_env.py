@@ -36,10 +36,17 @@ DEFAULT_MAX_TOOL_CALLS = 5
 
 SUCCESS_BONUS = 0.25
 VALIDITY_BONUS = 0.1
-# Flat bonus for taking >= N experiments (see [[user request]]). Overridable at runtime
-# via train_grpo's --measurement-bonus (sets this module global before training).
-MEASUREMENT_BONUS = 0.15
-MEASUREMENT_MIN_EXPERIMENTS = 2
+# Measurement reward: a saturating ("geometric") function of the number of experiments,
+# rewarding aggregation with diminishing returns that mirror the ~1/sqrt(N) variance drop
+# from averaging noisy measurements. Crucially this term is NOISE-FREE, so it's a clean
+# signal in the GRPO advantage (it credits the strategy, not the lucky outcome):
+#   reward(n) = MEASUREMENT_REWARD_CAP * (1 - MEASUREMENT_DECAY ** n)
+# Marginal reward decays geometrically; with decay=0.7 it reaches ~88% of the cap by n=6
+# and ~97% by n=10, tapering off in the 6-10 range. "Experiment" = drop_ball /
+# pendulum_period (calculator is free, excluded). Gated on a parseable answer so it can't
+# be farmed by measuring without answering. CAP/DECAY overridable via train_grpo.
+MEASUREMENT_REWARD_CAP = 0.5
+MEASUREMENT_DECAY = 0.7
 
 # Optional raw per-step reward dump (set by train_grpo to out/<run>/reward_dist.jsonl).
 _REWARD_DUMP = os.environ.get("GRPO_REWARD_DUMP")
@@ -210,17 +217,19 @@ def validity_reward(completions, environments, log_extra=None, **kwargs) -> list
 
 
 def measurement_reward(completions, environments, log_extra=None, **kwargs) -> list[float]:
-    """Flat bonus for taking >= MEASUREMENT_MIN_EXPERIMENTS experiments (and answering).
+    """Saturating ("geometric") reward in the number of experiments (and answering).
 
-    "Experiment" = drop_ball / pendulum_period (calculator is free and excluded). Gated on a
+    reward(n) = CAP * (1 - DECAY**n): monotonically increasing, concave, tapering toward
+    CAP around n=6-10 — mirroring the diminishing variance reduction of averaging more
+    noisy measurements. n = #drop_ball + #pendulum_period (calculator excluded). Gated on a
     parseable answer so it can't be farmed by measuring without ever answering.
     """
     out: list[float] = []
     for completion, env in zip(completions, environments):
         answered = parse_boxed_gravity(_final_answer_text(completion)) is not None
         n_experiments = env._lab.tool_calls if env._lab is not None else 0
-        earned = answered and n_experiments >= MEASUREMENT_MIN_EXPERIMENTS
-        out.append(MEASUREMENT_BONUS if earned else 0.0)
+        bonus = MEASUREMENT_REWARD_CAP * (1.0 - MEASUREMENT_DECAY ** n_experiments)
+        out.append(bonus if answered else 0.0)
     if log_extra is not None:
         log_extra("reward_measurement", out)
     _dump_rewards("measurement", out, kwargs.get("trainer_state"))
