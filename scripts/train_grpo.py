@@ -148,6 +148,8 @@ def main() -> None:
     ap.add_argument("--thinking", dest="thinking", action="store_true", default=True)
     ap.add_argument("--no-thinking", dest="thinking", action="store_false")
     ap.add_argument("--output-dir", default=None)
+    ap.add_argument("--wandb", action="store_true", help="Log to Weights & Biases (report_to=wandb).")
+    ap.add_argument("--wandb-project", default="alien-physics-grpo")
     # vLLM engine overrides (forced into vllm.LLM via monkeypatch).
     ap.add_argument(
         "--max-num-batched-tokens", type=int, default=None,
@@ -179,6 +181,8 @@ def main() -> None:
     args = ap.parse_args()
 
     os.environ.setdefault("TRL_EXPERIMENTAL_SILENCE", "1")
+    if args.wandb:
+        os.environ.setdefault("WANDB_PROJECT", args.wandb_project)
 
     _ensure_cuda13_runtime()
 
@@ -216,6 +220,8 @@ def main() -> None:
         "max_completion_length": args.max_completion_length,
         "vllm_gpu_memory_utilization": args.gpu_mem_util,
         "vllm_enable_sleep_mode": args.sleep_mode,
+        "report_to": "wandb" if args.wandb else None,
+        "run_name": args.run_name,
     }
     cfg = build_config(args.preset, thinking=args.thinking, output_dir=output_dir, overrides=overrides)
 
