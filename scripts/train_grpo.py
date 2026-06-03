@@ -177,7 +177,10 @@ def main() -> None:
     ap.add_argument("--measurement-bonus", type=float, default=None,
                     help="Override the measurement-reward CAP (asymptote of the geometric reward; default 0.5).")
     ap.add_argument("--measurement-decay", type=float, default=None,
-                    help="Geometric decay r for the measurement reward (default 0.7; lower => saturates sooner).")
+                    help="Geometric decay r for the measurement reward (default 0.8; lower => saturates sooner).")
+    ap.add_argument("--scale-rewards", choices=("group", "none", "batch"), default=None,
+                    help="GRPO advantage scaling: group (z-score by group std, default), "
+                         "none (Dr.GRPO mean-centering only — avoids dividing a noise-driven spread back up), batch.")
     ap.add_argument("--save-final", dest="save_final", action="store_true", default=True)
     ap.add_argument("--no-save-final", dest="save_final", action="store_false")
     ap.add_argument("--train-rows", type=int, default=None)
@@ -232,6 +235,7 @@ def main() -> None:
         "max_completion_length": args.max_completion_length,
         "vllm_gpu_memory_utilization": args.gpu_mem_util,
         "vllm_enable_sleep_mode": args.sleep_mode,
+        "scale_rewards": args.scale_rewards,
         "report_to": "wandb" if args.wandb else None,
         "run_name": args.run_name,
     }

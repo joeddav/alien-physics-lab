@@ -36,17 +36,18 @@ DEFAULT_MAX_TOOL_CALLS = 5
 
 SUCCESS_BONUS = 0.25
 VALIDITY_BONUS = 0.1
-# Measurement reward: a saturating ("geometric") function of the number of experiments,
-# rewarding aggregation with diminishing returns that mirror the ~1/sqrt(N) variance drop
-# from averaging noisy measurements. Crucially this term is NOISE-FREE, so it's a clean
-# signal in the GRPO advantage (it credits the strategy, not the lucky outcome):
-#   reward(n) = MEASUREMENT_REWARD_CAP * (1 - MEASUREMENT_DECAY ** n)
-# Marginal reward decays geometrically; with decay=0.7 it reaches ~88% of the cap by n=6
-# and ~97% by n=10, tapering off in the 6-10 range. "Experiment" = drop_ball /
-# pendulum_period (calculator is free, excluded). Gated on a parseable answer so it can't
-# be farmed by measuring without answering. CAP/DECAY overridable via train_grpo.
+# Measurement reward: saturating ("geometric") reward crediting the 2nd-AND-LATER experiment
+# (0 for 0 or 1). Rationale: a reward for the *1st* measurement shrank the lazy-vs-diligent
+# advantage gap and made the policy DRIFT DOWN to ~2 experiments + collapse entropy; gating
+# at >=2 restores the "you must aggregate" cliff that the earlier flat reward had.
+#   reward(n) = MEASUREMENT_REWARD_CAP * (1 - MEASUREMENT_DECAY ** max(0, n - 1))
+# n<=1 -> 0; n=2 -> CAP*(1-decay); marginal decays geometrically, sustaining a push toward
+# more measurements and tapering toward CAP around n~8-12 with decay=0.8. NOISE-FREE => a
+# clean, luck-free signal in the GRPO advantage (best paired with scale_rewards="none" so it
+# isn't divided away by the group std). n = #drop_ball + #pendulum_period (calculator
+# excluded). CAP/DECAY tunable via train_grpo (--measurement-bonus / --measurement-decay).
 MEASUREMENT_REWARD_CAP = 0.5
-MEASUREMENT_DECAY = 0.7
+MEASUREMENT_DECAY = 0.8
 
 # Optional raw per-step reward dump (set by train_grpo to out/<run>/reward_dist.jsonl).
 _REWARD_DUMP = os.environ.get("GRPO_REWARD_DUMP")
@@ -219,16 +220,18 @@ def validity_reward(completions, environments, log_extra=None, **kwargs) -> list
 def measurement_reward(completions, environments, log_extra=None, **kwargs) -> list[float]:
     """Saturating ("geometric") reward in the number of experiments (and answering).
 
-    reward(n) = CAP * (1 - DECAY**n): monotonically increasing, concave, tapering toward
-    CAP around n=6-10 — mirroring the diminishing variance reduction of averaging more
-    noisy measurements. n = #drop_ball + #pendulum_period (calculator excluded). Gated on a
-    parseable answer so it can't be farmed by measuring without ever answering.
+    reward(n) = CAP * (1 - DECAY**max(0, n-1)): 0 for n<=1, then monotonically increasing,
+    concave, tapering toward CAP (~n=8-12 at decay 0.8) — mirroring the diminishing variance
+    reduction of averaging more noisy measurements, while the >=2 gate keeps a single
+    measurement unrewarded. n = #drop_ball + #pendulum_period (calculator excluded). Gated on
+    a parseable answer so it can't be farmed by measuring without ever answering.
     """
     out: list[float] = []
     for completion, env in zip(completions, environments):
         answered = parse_boxed_gravity(_final_answer_text(completion)) is not None
         n_experiments = env._lab.tool_calls if env._lab is not None else 0
-        bonus = MEASUREMENT_REWARD_CAP * (1.0 - MEASUREMENT_DECAY ** n_experiments)
+        beyond_first = max(0, n_experiments - 1)  # credit the 2nd+ measurement only
+        bonus = MEASUREMENT_REWARD_CAP * (1.0 - MEASUREMENT_DECAY ** beyond_first)
         out.append(bonus if answered else 0.0)
     if log_extra is not None:
         log_extra("reward_measurement", out)
