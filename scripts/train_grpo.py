@@ -150,6 +150,8 @@ def main() -> None:
     ap.add_argument("--output-dir", default=None)
     ap.add_argument("--wandb", action="store_true", help="Log to Weights & Biases (report_to=wandb).")
     ap.add_argument("--wandb-project", default="alien-physics-grpo")
+    ap.add_argument("--notes", default=None, help="Free-text W&B run notes: what's special about this run.")
+    ap.add_argument("--tags", default=None, help="Comma-separated W&B tags (e.g. 'geom-reward,noise08').")
     # vLLM engine overrides (forced into vllm.LLM via monkeypatch).
     ap.add_argument(
         "--max-num-batched-tokens", type=int, default=None,
@@ -258,6 +260,24 @@ def main() -> None:
         f"max_steps={cfg.max_steps} max_completion_length={cfg.max_completion_length} "
         f"noise={ds_kwargs.get('measurement_noise', 0.03)} train_rows={n_train}"
     )
+
+    # W&B run notes/tags: a self-documenting config summary + the run-specific "what's
+    # special" note. wandb.init (fired inside GRPOTrainer) reads these env vars.
+    if args.wandb:
+        noise = args.measurement_noise if args.measurement_noise is not None else 0.03
+        auto = (
+            f"model={args.model}; preset={args.preset}; thinking={args.thinking}; "
+            f"lr={cfg.learning_rate}; beta={cfg.beta}; G={cfg.num_generations}; "
+            f"bsz={cfg.per_device_train_batch_size}x{cfg.gradient_accumulation_steps}; "
+            f"max_steps={cfg.max_steps}; max_completion_length={cfg.max_completion_length}; "
+            f"measurement_noise={noise}; scale_rewards={cfg.scale_rewards}; "
+            f"sleep_mode={cfg.vllm_enable_sleep_mode}; answer=boxed; env=no-world-params/no-budget; "
+            f"meas_reward=geometric(cap={_grpo_env.MEASUREMENT_REWARD_CAP},"
+            f"decay={_grpo_env.MEASUREMENT_DECAY})"
+        )
+        os.environ["WANDB_NOTES"] = (args.notes + "\n\n" + auto) if args.notes else auto
+        if args.tags:
+            os.environ["WANDB_TAGS"] = args.tags
 
     trainer = GRPOTrainer(
         model=args.model,
