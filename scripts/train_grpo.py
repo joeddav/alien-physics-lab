@@ -115,12 +115,19 @@ def build_config(preset: str, *, thinking: bool, output_dir: str, overrides: dic
             save_strategy="no",
         )
     else:  # "real"
+        # Memory profile matched to the validated smoke (per-backward = 4 seqs x 4096
+        # tokens): keep per_device_train_batch_size=4 and reach the group size of 8 via
+        # gradient accumulation (peak activation memory tracks the micro-batch, not the
+        # group). vLLM sleep-mode does NOT fully release its reserved pool, so a lower
+        # gpu fraction (0.22) leaves headroom for the full-bf16 backward. per_device=8
+        # x 6144 OOMs on backward (~3x this profile); do not raise without re-checking.
         kwargs.update(
             num_generations=8,
-            per_device_train_batch_size=8,
-            gradient_accumulation_steps=4,
-            vllm_max_model_length=8192,
-            max_completion_length=6144 if thinking else 3072,
+            per_device_train_batch_size=4,
+            gradient_accumulation_steps=2,
+            vllm_gpu_memory_utilization=0.22,
+            vllm_max_model_length=6144,
+            max_completion_length=4096 if thinking else 3072,
             max_tool_calling_iterations=12,
             num_train_epochs=1,
             logging_steps=2,
