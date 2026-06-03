@@ -76,10 +76,11 @@ def build_config(preset: str, *, thinking: bool, output_dir: str, overrides: dic
         output_dir=output_dir,
         use_vllm=True,
         vllm_mode="colocate",
-        # Colocate on one GPU: vLLM offloads weights+KV to CPU during the optimizer
-        # step (llm.sleep level 2) and wakes before generation, so vLLM and the
-        # full-bf16 optimizer time-share VRAM instead of colliding (OOM).
-        vllm_enable_sleep_mode=True,
+        # MUST stay False: with vLLM 0.22, sleep-mode runs collective_rpc("reload_weights")
+        # before each generation, which reloads the ORIGINAL checkpoint and clobbers the
+        # policy weights sync_weights just pushed -> the policy is frozen at base and no RL
+        # happens. We fit on one GPU instead via a low vLLM mem fraction + grad checkpointing.
+        vllm_enable_sleep_mode=False,
         vllm_importance_sampling_correction=True,
         # Token-level (not the default "sequence_mask"): exp(sum of per-token
         # vLLM<->HF logp diffs) underflows to ~0 on long thinking traces and zeros
@@ -99,7 +100,7 @@ def build_config(preset: str, *, thinking: bool, output_dir: str, overrides: dic
         log_completions=True,
         report_to="none",
         gradient_checkpointing=True,
-        vllm_gpu_memory_utilization=0.30,
+        vllm_gpu_memory_utilization=0.22,
     )
 
     if preset == "smoke":
@@ -118,9 +119,9 @@ def build_config(preset: str, *, thinking: bool, output_dir: str, overrides: dic
         # Memory profile matched to the validated smoke (per-backward = 4 seqs x 4096
         # tokens): keep per_device_train_batch_size=4 and reach the group size of 8 via
         # gradient accumulation (peak activation memory tracks the micro-batch, not the
-        # group). vLLM sleep-mode does NOT fully release its reserved pool, so a lower
-        # gpu fraction (0.22) leaves headroom for the full-bf16 backward. per_device=8
-        # x 6144 OOMs on backward (~3x this profile); do not raise without re-checking.
+        # group). With sleep-mode OFF (required — see above), vLLM holds its fraction the
+        # whole step, so a low gpu fraction (0.22, ~21 GB) leaves headroom for the full-bf16
+        # backward. per_device=8 x 6144 OOMs on backward (~3x this profile); don't raise blindly.
         kwargs.update(
             num_generations=8,
             per_device_train_batch_size=4,
@@ -154,6 +155,11 @@ def main() -> None:
     )
     ap.add_argument("--enforce-eager", dest="enforce_eager", action="store_true", default=True)
     ap.add_argument("--no-enforce-eager", dest="enforce_eager", action="store_false")
+    # Sleep-mode MUST stay off (default False): its reload_weights workaround clobbers the
+    # synced policy weights every step, freezing the policy at base. --sleep-mode to re-enable
+    # (only safe if the vLLM/TRL reload_weights interaction is fixed).
+    ap.add_argument("--sleep-mode", dest="sleep_mode", action="store_true", default=False)
+    ap.add_argument("--no-sleep-mode", dest="sleep_mode", action="store_false")
     # Per-run hyperparameter overrides (None -> keep preset value). Used by the sweep.
     ap.add_argument("--lr", type=float, default=None)
     ap.add_argument("--beta", type=float, default=None, help="KL coefficient (0 = off).")
@@ -209,6 +215,7 @@ def main() -> None:
         "max_steps": args.max_steps,
         "max_completion_length": args.max_completion_length,
         "vllm_gpu_memory_utilization": args.gpu_mem_util,
+        "vllm_enable_sleep_mode": args.sleep_mode,
     }
     cfg = build_config(args.preset, thinking=args.thinking, output_dir=output_dir, overrides=overrides)
 
