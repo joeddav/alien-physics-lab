@@ -164,6 +164,8 @@ def main() -> None:
     ap.add_argument("--max-completion-length", type=int, default=None)
     ap.add_argument("--gpu-mem-util", type=float, default=None)
     ap.add_argument("--measurement-noise", type=float, default=None, help="Hidden world noise (default 0.03).")
+    ap.add_argument("--measurement-bonus", type=float, default=None,
+                    help="Override the flat measurement-reward bonus (e.g. 1.5 to overfit/sanity-check the reward).")
     ap.add_argument("--save-final", dest="save_final", action="store_true", default=True)
     ap.add_argument("--no-save-final", dest="save_final", action="store_false")
     ap.add_argument("--train-rows", type=int, default=None)
@@ -185,12 +187,17 @@ def main() -> None:
     from trl import GRPOTrainer
 
     from alien_physics_lab.grpo_data import make_splits
+    from alien_physics_lab import grpo_env as _grpo_env
     from alien_physics_lab.grpo_env import (
         AlienPhysicsGRPOEnv,
         measurement_reward,
         physics_reward,
         validity_reward,
     )
+
+    if args.measurement_bonus is not None:
+        _grpo_env.MEASUREMENT_BONUS = args.measurement_bonus
+        print(f"[train_grpo] measurement bonus overridden -> {args.measurement_bonus}")
 
     output_dir = args.output_dir or f"out/grpo-{args.run_name or args.preset}"
     overrides = {
