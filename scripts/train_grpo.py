@@ -184,6 +184,12 @@ def main() -> None:
     if args.wandb:
         os.environ.setdefault("WANDB_PROJECT", args.wandb_project)
 
+    output_dir = args.output_dir or f"out/grpo-{args.run_name or args.preset}"
+    os.makedirs(output_dir, exist_ok=True)
+    # Raw per-step per-rollout reward arrays for offline distribution plotting (read at
+    # grpo_env import time below; also surfaced per-rollout in the wandb completions table).
+    os.environ["GRPO_REWARD_DUMP"] = os.path.join(output_dir, "reward_dist.jsonl")
+
     _ensure_cuda13_runtime()
 
     vllm_overrides: dict[str, object] = {}
@@ -209,7 +215,6 @@ def main() -> None:
         _grpo_env.MEASUREMENT_BONUS = args.measurement_bonus
         print(f"[train_grpo] measurement bonus overridden -> {args.measurement_bonus}")
 
-    output_dir = args.output_dir or f"out/grpo-{args.run_name or args.preset}"
     overrides = {
         "learning_rate": args.lr,
         "beta": args.beta,
