@@ -9,6 +9,21 @@ dependencies = []
 [project.scripts]
 alien-lab = "alien_physics_lab.cli:main"
 
+[project.optional-dependencies]
+# GRPO training stack. NOTE: vllm + torch are intentionally NOT listed here —
+# they must be installed from the vLLM nightly index
+# (https://wheels.vllm.ai/nightly) with a cu129/cu130 torch backend, which
+# cannot be expressed as plain PyPI pins. transformers>=5.2 is required by
+# TRL's environment_factory; trl must be installed WITHOUT the [vllm] extra
+# (that extra pins vllm<=0.18 and would drag transformers back below 5).
+train = [
+    "transformers==5.9.0",
+    "trl==1.5.1",
+    "jmespath",
+    "accelerate>=1.4.0",
+    "datasets>=4.7.0",
+]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
