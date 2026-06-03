@@ -38,8 +38,11 @@ torch 2.11.0+cu129 · vLLM 0.22.1 nightly · transformers 5.9.0 · TRL 1.5.1 (NO
   for the vLLM EngineCore subprocess too.
 - **`enforce_eager=True`**: forced via a `vllm.LLM` monkeypatch — avoids SM120
   CUDA-graph issues. (`grad_norm` healthy, generation correct.)
-- **vLLM colocate sleep-mode** (`vllm_enable_sleep_mode=True`): without it, vLLM holds
-  its memory fraction during the optimizer step → OOM on one GPU.
+- **vLLM colocate sleep-mode MUST be OFF** (`vllm_enable_sleep_mode=False`, the default):
+  with vLLM 0.22 it runs `collective_rpc("reload_weights")` before each generation, which
+  reloads the base checkpoint and **clobbers the synced policy weights → frozen policy, no
+  RL** (this invalidated the first overnight sweep — see docs/results/2026-06-03). Fit on
+  one GPU instead via low `vllm_gpu_memory_utilization` (0.22) + gradient checkpointing.
 - **Token-level importance sampling** (`vllm_importance_sampling_mode="token_truncate"`):
   TRL's default `sequence_mask` underflows `exp(Σ logp-diff)` to ~0 on long thinking
   traces → zero gradient. Token-level keeps it healthy.
