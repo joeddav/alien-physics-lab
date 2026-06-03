@@ -39,6 +39,13 @@ DEFAULT_MAX_TOOL_CALLS = 5
 SUCCESS_BONUS = 0.25
 VALIDITY_BONUS = 0.1
 
+# Explicit FLAT incentive to take MULTIPLE measurements (so noise can be averaged out):
+# a flat bonus for 2 or more experiments, nothing for 0 or 1. "Experiment" =
+# drop_ball / pendulum_period (the budget-consuming calls); calculator is free and does
+# not count. Gated on submitting so it can't be farmed by measuring without answering.
+MEASUREMENT_BONUS = 0.15
+MEASUREMENT_MIN_EXPERIMENTS = 2
+
 
 class AlienPhysicsGRPOEnv:
     """One alien-physics-lab episode, exposed to TRL as a stateful tool environment."""
@@ -183,4 +190,18 @@ def validity_reward(environments: list[AlienPhysicsGRPOEnv], **_kwargs: Any) -> 
     for env in environments:
         ran_experiment = env._lab is not None and env._lab.tool_calls > 0
         out.append(VALIDITY_BONUS if (env.submitted and ran_experiment) else 0.0)
+    return out
+
+
+def measurement_reward(environments: list[AlienPhysicsGRPOEnv], **_kwargs: Any) -> list[float]:
+    """Flat bonus for taking >= MEASUREMENT_MIN_EXPERIMENTS experiments (and submitting).
+
+    Explicitly incentivizes running multiple measurements so the model can aggregate
+    away observation noise. Flat: no extra reward beyond the threshold.
+    """
+    out: list[float] = []
+    for env in environments:
+        n_experiments = env._lab.tool_calls if env._lab is not None else 0
+        earned = env.submitted and n_experiments >= MEASUREMENT_MIN_EXPERIMENTS
+        out.append(MEASUREMENT_BONUS if earned else 0.0)
     return out

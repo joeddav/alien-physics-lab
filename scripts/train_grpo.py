@@ -187,6 +187,7 @@ def main() -> None:
     from alien_physics_lab.grpo_data import make_splits
     from alien_physics_lab.grpo_env import (
         AlienPhysicsGRPOEnv,
+        measurement_reward,
         physics_reward,
         validity_reward,
     )
@@ -230,7 +231,7 @@ def main() -> None:
 
     trainer = GRPOTrainer(
         model=args.model,
-        reward_funcs=[physics_reward, validity_reward],
+        reward_funcs=[physics_reward, validity_reward, measurement_reward],
         args=cfg,
         train_dataset=train_ds,
         eval_dataset=eval_ds,
