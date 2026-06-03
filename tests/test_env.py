@@ -39,20 +39,22 @@ class AlienPhysicsLabTest(unittest.TestCase):
         self.assertTrue(result.success, result)
         self.assertLessEqual(result.tool_calls, 5)
 
-    def test_calculator_does_not_consume_experiment_budget(self) -> None:
+    def test_calculator_is_free_and_experiments_counted(self) -> None:
         lab = AlienPhysicsLab(
             world=WorldParams(gravity_m_s2=10.0, measurement_noise=0.0, seed=1),
-            max_tool_calls=1,
         )
         observation = lab.call_tool("calculator", expression="2*10/(2**2)")
         self.assertEqual(observation["value"], 5.0)
-        self.assertEqual(lab.tool_calls, 0)
+        self.assertEqual(lab.tool_calls, 0)  # calculator is not an experiment
         self.assertEqual(lab.calculator_calls, 1)
 
-        lab.call_tool("drop_ball", mass_kg=1.0, height_m=20.0)
-        self.assertEqual(lab.tool_calls, 1)
-        second_experiment = lab.call_tool("drop_ball", mass_kg=1.0, height_m=20.0)
-        self.assertEqual(second_experiment["error"], "tool budget exhausted")
+        # No tool budget: repeated experiments all succeed and are counted.
+        obs = None
+        for _ in range(3):
+            obs = lab.call_tool("drop_ball", mass_kg=1.0, height_m=20.0)
+            self.assertIn("measured_time_s", obs)
+        self.assertEqual(lab.tool_calls, 3)
+        self.assertNotIn("remaining_tool_calls", obs)
 
     def test_calculator_rejects_statements(self) -> None:
         lab = AlienPhysicsLab(world=WorldParams(gravity_m_s2=10.0, seed=1))

@@ -64,27 +64,26 @@ class AlienPhysicsLab:
         return sum(1 for event in self.transcript if event.get("tool") == "calculator")
 
     def instructions(self) -> str:
-        public = self.world.public_summary()
         return (
             "You are in an alien physics lab. Your task is to infer the lab's "
-            "effective gravity in m/s^2. You may run experiments, but each tool "
-            f"call consumes budget. Budget: {self.max_tool_calls} calls.\n\n"
-            f"Public world parameters: {json.dumps(public, sort_keys=True)}\n\n"
+            "effective gravity in m/s^2 by running experiments. Nothing about the "
+            "lab's gravity is given to you in advance: the only way to determine it "
+            "is to run experiments and reason from their measurements.\n\n"
             "Available tools:\n"
             "- drop_ball(mass_kg: positive number, height_m: 0.1 to 1000): "
             "returns lab measurements from a falling-ball trial.\n"
             "- pendulum_period(length_m: 0.05 to 100): returns a lab "
             "measurement from a pendulum trial.\n"
-            "- calculator(expression: string) for arithmetic. Calculator calls "
-            "do not consume the experiment budget.\n\n"
+            "- calculator(expression: string) for arithmetic.\n\n"
             "Final answer must be JSON with a numeric gravity_m_s2 field, e.g. "
             '{"gravity_m_s2": 14.715}.'
         )
 
     def call_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
+        # No tool budget: experiments are unlimited. Rollout length is bounded by the
+        # training loop's max tool-calling iterations, not by the env. counts_toward_budget
+        # is kept only to separate experiments from the free calculator in `tool_calls`.
         counts_toward_budget = name != "calculator"
-        if counts_toward_budget and self.tool_calls >= self.max_tool_calls:
-            return {"error": "tool budget exhausted", "remaining_tool_calls": 0}
 
         if name == "drop_ball":
             result = self._drop_ball(**kwargs)
@@ -104,7 +103,6 @@ class AlienPhysicsLab:
                 "counts_toward_budget": counts_toward_budget,
             }
         )
-        result["remaining_tool_calls"] = self.max_tool_calls - self.tool_calls
         return result
 
     def _drop_ball(self, *, mass_kg: float, height_m: float) -> dict[str, Any]:
