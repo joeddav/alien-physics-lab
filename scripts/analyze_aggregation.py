@@ -69,6 +69,13 @@ def fmt(x: float, p: int = 3) -> str:
     return "nan" if pd.isna(x) else f"{x:.{p}f}"
 
 
+def spearman(a: "pd.Series", b: "pd.Series") -> float:
+    """Spearman rho = Pearson on ranks (avoids a scipy dependency)."""
+    if len(a) < 2:
+        return float("nan")
+    return a.rank().corr(b.rank())
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir")
@@ -120,7 +127,7 @@ def main() -> None:
     if has_noise:
         d = df.dropna(subset=["world_noise"]).copy()
         pear = d["world_noise"].corr(d["n_experiments"], method="pearson")
-        spear = d["world_noise"].corr(d["n_experiments"], method="spearman")
+        spear = spearman(d["world_noise"], d["n_experiments"])
         out("## Adaptive aggregation: corr(world_noise, n_experiments)")
         out(f"Pearson r = {fmt(pear)}   Spearman ρ = {fmt(spear)}   (over all {len(d)} rollouts)")
         out()
@@ -128,23 +135,25 @@ def main() -> None:
         dl = late.dropna(subset=["world_noise"])
         if len(dl) > 10:
             out(f"Late-third only: Pearson r = {fmt(dl['world_noise'].corr(dl['n_experiments']))}   "
-                f"Spearman ρ = {fmt(dl['world_noise'].corr(dl['n_experiments'], method='spearman'))} "
+                f"Spearman ρ = {fmt(spearman(dl['world_noise'], dl['n_experiments']))} "
                 f"(n={len(dl)})")
             out()
         # Binned: noise quartile -> behavior. The adaptive hypothesis predicts n_exp ↑ with noise.
-        d["noise_q"] = pd.qcut(d["world_noise"], 4, labels=["Q1(low)", "Q2", "Q3", "Q4(high)"])
-        out("## Behavior by hidden-noise quartile (all rollouts)")
-        out("| noise quartile | noise range | mean n_exp | %>=3 | physics_reward |")
-        out("|---|---|---|---|---|")
-        for q in ["Q1(low)", "Q2", "Q3", "Q4(high)"]:
-            dd = d[d["noise_q"] == q]
-            if not len(dd):
-                continue
-            rng = f"{dd['world_noise'].min():.3f}–{dd['world_noise'].max():.3f}"
-            phys = dd["physics_reward"].mean() if "physics_reward" in dd else float("nan")
-            pct3 = (dd["n_experiments"] >= 3).mean() * 100
-            out(f"| {q} | {rng} | {fmt(dd['n_experiments'].mean(),2)} | {fmt(pct3,1)}% | {fmt(phys)} |")
-        out()
+        if d["world_noise"].nunique() >= 4:
+            d["noise_q"] = pd.qcut(d["world_noise"], 4, labels=["Q1(low)", "Q2", "Q3", "Q4(high)"],
+                                   duplicates="drop")
+            out("## Behavior by hidden-noise quartile (all rollouts)")
+            out("| noise quartile | noise range | mean n_exp | %>=3 | physics_reward |")
+            out("|---|---|---|---|---|")
+            for q in ["Q1(low)", "Q2", "Q3", "Q4(high)"]:
+                dd = d[d["noise_q"] == q]
+                if not len(dd):
+                    continue
+                rng = f"{dd['world_noise'].min():.3f}–{dd['world_noise'].max():.3f}"
+                phys = dd["physics_reward"].mean() if "physics_reward" in dd else float("nan")
+                pct3 = (dd["n_experiments"] >= 3).mean() * 100
+                out(f"| {q} | {rng} | {fmt(dd['n_experiments'].mean(),2)} | {fmt(pct3,1)}% | {fmt(phys)} |")
+            out()
         out("Interpretation: a clear positive trend (mean n_exp rising Q1→Q4, ρ>0) is direct "
             "evidence the policy learned to *adaptively aggregate* — the whole point of the "
             "varying-noise task. Flat across quartiles ⇒ it picked one fixed procedure regardless "
@@ -155,6 +164,51 @@ def main() -> None:
             "→ per-world noise unknown, so corr(noise, n_exp) is unavailable here. The chained run "
             "(launched with the diagnostic columns) reports it exactly. Above: the n_exp trajectory "
             "still shows whether the policy escapes the n=2 plateau on average.")
+
+    # --- diversity-knob adaptivity (only when a knob was active, i.e. its column varies) ---
+    if "world_tolerance" in df.columns and df["world_tolerance"].nunique() > 1:
+        d = df.dropna(subset=["world_tolerance"]).copy()
+        out("## Knob 1 — does aggregation rise as required precision tightens?")
+        out(f"Spearman rho(world_tolerance, n_exp) = "
+            f"{fmt(spearman(d['world_tolerance'], d['n_experiments']))} "
+            "(expect NEGATIVE: a tighter tolerance should demand MORE experiments)")
+        if "world_noise" in d.columns and d["world_noise"].notna().any():
+            d["tol_mult"] = d["world_tolerance"] / d["world_noise"]
+            out(f"Spearman rho(tol/noise, n_exp) = "
+                f"{fmt(spearman(d['tol_mult'], d['n_experiments']))} "
+                "(the multiplier sets the required k ~= 4/mult^2, independent of noise)")
+        if d["world_tolerance"].nunique() >= 4:
+            d["tol_q"] = pd.qcut(d["world_tolerance"].rank(method="first"), 4,
+                                 labels=["tightest", "Q2", "Q3", "loosest"])
+            out("| tolerance bucket | tol range | mean n_exp | physics |")
+            out("|---|---|---|---|")
+            for q in ["tightest", "Q2", "Q3", "loosest"]:
+                dd = d[d["tol_q"] == q]
+                if not len(dd):
+                    continue
+                phys = dd["physics_reward"].mean() if "physics_reward" in dd else float("nan")
+                out(f"| {q} | {dd['world_tolerance'].min():.3f}–{dd['world_tolerance'].max():.3f} "
+                    f"| {fmt(dd['n_experiments'].mean(), 2)} | {fmt(phys)} |")
+            out()
+
+    if "world_tools" in df.columns and df["world_tools"].nunique() > 1:
+        out("## Knob 2 — behavior by available tools")
+        out("| available tools | rollouts | mean n_exp | physics |")
+        out("|---|---|---|---|")
+        for tools, dd in df.groupby("world_tools"):
+            phys = dd["physics_reward"].mean() if "physics_reward" in dd else float("nan")
+            out(f"| {tools} | {len(dd)} | {fmt(dd['n_experiments'].mean(), 2)} | {fmt(phys)} |")
+        out()
+
+    if "template_idx" in df.columns and df["template_idx"].nunique() > 1:
+        out("## Knob 3 — accuracy robustness across prompt templates")
+        out("(flat physics across templates = robust to paraphrase, the desired outcome)")
+        out("| template_idx | rollouts | physics | mean n_exp |")
+        out("|---|---|---|---|")
+        for t, dd in df.groupby("template_idx"):
+            phys = dd["physics_reward"].mean() if "physics_reward" in dd else float("nan")
+            out(f"| {int(t)} | {len(dd)} | {fmt(phys)} | {fmt(dd['n_experiments'].mean(), 2)} |")
+        out()
 
     if args.md:
         with open(args.md, "w") as f:
