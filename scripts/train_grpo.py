@@ -187,6 +187,14 @@ def main() -> None:
                     help="With --noise-max: per-world hidden noise drawn log-uniform in [min,max] "
                          "(varies the optimal #measurements -> forces adaptive aggregation).")
     ap.add_argument("--noise-max", type=float, default=None)
+    # Procedural-diversity knobs (input/task-structure variety; default OFF). See
+    # grpo_data.make_dataset / grpo_env.reset.
+    ap.add_argument("--vary-precision", action="store_true",
+                    help="Knob 1: per-world required precision (drawn ~world noise), stated in the briefing.")
+    ap.add_argument("--vary-tools", action="store_true",
+                    help="Knob 2: per-world available experiments (drop_ball / pendulum_period / both).")
+    ap.add_argument("--vary-prompt", action="store_true",
+                    help="Knob 3: per-world scenario-framing template (paraphrase).")
     ap.add_argument("--measurement-bonus", type=float, default=None,
                     help="Override the measurement-reward CAP (asymptote of the geometric reward; default 0.5).")
     ap.add_argument("--measurement-decay", type=float, default=None,
@@ -272,6 +280,12 @@ def main() -> None:
     if args.noise_min is not None and args.noise_max is not None:
         ds_kwargs["noise_min"] = args.noise_min
         ds_kwargs["noise_max"] = args.noise_max
+    if args.vary_precision:
+        ds_kwargs["vary_precision"] = True
+    if args.vary_tools:
+        ds_kwargs["vary_tools"] = True
+    if args.vary_prompt:
+        ds_kwargs["vary_prompt"] = True
     train_ds, eval_ds = make_splits(n_train, n_eval, **ds_kwargs)
 
     print(
@@ -299,7 +313,9 @@ def main() -> None:
             f"measurement_noise={noise}; scale_rewards={cfg.scale_rewards}; "
             f"sleep_mode={cfg.vllm_enable_sleep_mode}; answer=boxed; env=no-world-params/no-budget; "
             f"meas_reward=geometric(cap={_grpo_env.MEASUREMENT_REWARD_CAP},"
-            f"decay={_grpo_env.MEASUREMENT_DECAY})"
+            f"decay={_grpo_env.MEASUREMENT_DECAY}); "
+            f"diversity[vary_precision={args.vary_precision},vary_tools={args.vary_tools},"
+            f"vary_prompt={args.vary_prompt}]"
         )
         os.environ["WANDB_NOTES"] = (args.notes + "\n\n" + auto) if args.notes else auto
         if args.tags:

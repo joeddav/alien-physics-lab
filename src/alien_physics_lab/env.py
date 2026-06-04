@@ -9,6 +9,11 @@ from typing import Any
 
 from alien_physics_lab.world import EARTH_GRAVITY_M_S2, WorldParams
 
+# The zero-reward band is this multiple of the success tolerance (preserves the
+# historical 0.12/0.03 = 4x ratio). Used to scale reward_zero_tolerance when a
+# per-world success_tolerance is set (knob 1: per-world required precision).
+REWARD_ZERO_RATIO = 4.0
+
 
 @dataclass(frozen=True)
 class LabResult:
@@ -42,6 +47,7 @@ class AlienPhysicsLab:
         gravity_max: float = 2.0 * EARTH_GRAVITY_M_S2,
         measurement_noise: float = 0.005,
         max_tool_calls: int = 5,
+        success_tolerance: float | None = None,
     ) -> "AlienPhysicsLab":
         rng = random.Random(seed)
         world = WorldParams(
@@ -49,7 +55,14 @@ class AlienPhysicsLab:
             measurement_noise=measurement_noise,
             seed=seed,
         )
-        return cls(world=world, max_tool_calls=max_tool_calls)
+        # Per-world required precision (knob 1): when set, calibrate the success band and
+        # the proportional zero-reward band per world; otherwise the dataclass defaults
+        # (0.03 / 0.12) stand -> byte-identical to before.
+        extra: dict[str, float] = {}
+        if success_tolerance is not None:
+            extra["success_tolerance"] = success_tolerance
+            extra["reward_zero_tolerance"] = success_tolerance * REWARD_ZERO_RATIO
+        return cls(world=world, max_tool_calls=max_tool_calls, **extra)
 
     @property
     def tool_calls(self) -> int:
@@ -63,21 +76,33 @@ class AlienPhysicsLab:
     def calculator_calls(self) -> int:
         return sum(1 for event in self.transcript if event.get("tool") == "calculator")
 
-    def instructions(self) -> str:
-        return (
+    def instructions(self, available: set[str] | None = None) -> str:
+        """Briefing text. If ``available`` is given, only those experiments are listed
+        (calculator is always available); ``None`` lists all (today's exact text)."""
+        intro = (
             "You are in an alien physics lab. Your task is to infer the lab's "
             "effective gravity in m/s^2 by running experiments. Nothing about the "
             "lab's gravity is given to you in advance: the only way to determine it "
             "is to run experiments and reason from their measurements.\n\n"
             "Available tools:\n"
-            "- drop_ball(mass_kg: positive number, height_m: 0.1 to 1000): "
-            "returns lab measurements from a falling-ball trial.\n"
-            "- pendulum_period(length_m: 0.05 to 100): returns a lab "
-            "measurement from a pendulum trial.\n"
-            "- calculator(expression: string) for arithmetic.\n\n"
+        )
+        lines: list[str] = []
+        if available is None or "drop_ball" in available:
+            lines.append(
+                "- drop_ball(mass_kg: positive number, height_m: 0.1 to 1000): "
+                "returns lab measurements from a falling-ball trial.\n"
+            )
+        if available is None or "pendulum_period" in available:
+            lines.append(
+                "- pendulum_period(length_m: 0.05 to 100): returns a lab "
+                "measurement from a pendulum trial.\n"
+            )
+        lines.append("- calculator(expression: string) for arithmetic.\n\n")
+        tail = (
             "Final answer must be JSON with a numeric gravity_m_s2 field, e.g. "
             '{"gravity_m_s2": 14.715}.'
         )
+        return intro + "".join(lines) + tail
 
     def call_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
         # No tool budget: experiments are unlimited. Rollout length is bounded by the
