@@ -1,8 +1,9 @@
 # CLAUDE.md — Alien Physics Lab
 
 RLVR-style playground: an agent is dropped in an alien lab with hidden physics, runs
-experiments under a tool budget, and submits a scored answer. Current task: recover
-effective gravity. Two layers:
+experiments (drop_ball / pendulum_period / calculator) and submits a scored answer as
+`\boxed{g}`. Current task: recover effective gravity. (No tool budget, no public world
+params — both removed; gravity is inferred purely by experiment.) Two layers:
 
 1. **Environment** (`src/alien_physics_lab/`): `world.py` (hidden `WorldParams`),
    `env.py` (`AlienPhysicsLab` tools + scoring), `agents.py` (heuristic baseline),
@@ -25,6 +26,19 @@ export VLLM_LOGGING_LEVEL=WARN TRL_EXPERIMENTAL_SILENCE=1 PYTORCH_CUDA_ALLOC_CON
 Model: **Qwen/Qwen3-1.7B** (instruction-tuned hybrid, thinking ON). Full bf16,
 colocated vLLM rollouts. Sweep knobs: `--lr --beta --num-generations --max-steps
 --measurement-noise --max-completion-length --gpu-mem-util --no-thinking`.
+
+### Procedural diversity (added 2026-06-04)
+
+The base task is "effectively one prompt" (byte-identical briefing every episode; only the
+hidden latent varies). Three opt-in knobs add input/task-structure variety — all default OFF
+(byte-identical to before), all CRN-safe (each per-world value is a deterministic `f(seed)`):
+`--vary-precision` (per-world required precision drawn `~noise·U[0.8,3.0]`, **stated** in the
+briefing as "within X%", used by `score_answer`; makes aggregation load-bearing AND
+conditionable), `--vary-tools` (per-world subset of drop_ball/pendulum_period via **soft-disable**
+— TRL freezes the tool schema, so a disabled call returns an in-band error and is omitted from
+the briefing; calculator always on), `--vary-prompt` (per-world scenario-framing intro; only the
+intro paragraph varies). `scripts/analyze_aggregation.py <run-dir>` reports whether behavior
+adapts to each knob. Design + adversarial review: `docs/results/2026-06-04-grpo.md`.
 
 ## Stack (pinned, Blackwell RTX PRO 6000 / SM120)
 
