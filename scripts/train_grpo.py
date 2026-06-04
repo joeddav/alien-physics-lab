@@ -179,6 +179,8 @@ def main() -> None:
     ap.add_argument("--grad-accum", type=int, default=None)
     ap.add_argument("--max-steps", type=int, default=None)
     ap.add_argument("--max-completion-length", type=int, default=None)
+    ap.add_argument("--vllm-max-model-length", type=int, default=None,
+                    help="vLLM max context (prompt+completion); raise for verbose models like Qwen3-4B.")
     ap.add_argument("--gpu-mem-util", type=float, default=None)
     ap.add_argument("--measurement-noise", type=float, default=None, help="Hidden world noise (default 0.03).")
     ap.add_argument("--measurement-bonus", type=float, default=None,
@@ -240,6 +242,7 @@ def main() -> None:
         "gradient_accumulation_steps": args.grad_accum,
         "max_steps": args.max_steps,
         "max_completion_length": args.max_completion_length,
+        "vllm_max_model_length": args.vllm_max_model_length,
         "vllm_gpu_memory_utilization": args.gpu_mem_util,
         "vllm_enable_sleep_mode": args.sleep_mode,
         "scale_rewards": args.scale_rewards,
