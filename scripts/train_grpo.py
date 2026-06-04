@@ -144,6 +144,13 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--preset", choices=("smoke", "real"), default="smoke")
     ap.add_argument("--model", default="Qwen/Qwen3-1.7B")
+    # LoRA: train an adapter instead of full fine-tuning (enables larger models, e.g. Qwen3-4B,
+    # on one GPU — frozen bf16 base + small adapter). TRL merges the adapter into the base and
+    # load_weights it into the colocated vLLM each step (sleep_mode must stay off).
+    ap.add_argument("--lora", action="store_true", help="Train a LoRA adapter instead of full fine-tuning.")
+    ap.add_argument("--lora-r", type=int, default=32)
+    ap.add_argument("--lora-alpha", type=int, default=64)
+    ap.add_argument("--lora-dropout", type=float, default=0.0)
     ap.add_argument("--run-name", default=None, help="Names the output dir (out/grpo-<run-name>).")
     ap.add_argument("--thinking", dest="thinking", action="store_true", default=True)
     ap.add_argument("--no-thinking", dest="thinking", action="store_false")
@@ -269,8 +276,9 @@ def main() -> None:
     # special" note. wandb.init (fired inside GRPOTrainer) reads these env vars.
     if args.wandb:
         noise = args.measurement_noise if args.measurement_noise is not None else 0.03
+        finetune = f"lora(r={args.lora_r},a={args.lora_alpha})" if args.lora else "full-bf16"
         auto = (
-            f"model={args.model}; preset={args.preset}; thinking={args.thinking}; "
+            f"model={args.model}; finetune={finetune}; preset={args.preset}; thinking={args.thinking}; "
             f"lr={cfg.learning_rate}; beta={cfg.beta}; G={cfg.num_generations}; "
             f"bsz={cfg.per_device_train_batch_size}x{cfg.gradient_accumulation_steps}; "
             f"max_steps={cfg.max_steps}; max_completion_length={cfg.max_completion_length}; "
@@ -283,6 +291,20 @@ def main() -> None:
         if args.tags:
             os.environ["WANDB_TAGS"] = args.tags
 
+    peft_config = None
+    if args.lora:
+        from peft import LoraConfig
+
+        peft_config = LoraConfig(
+            r=args.lora_r,
+            lora_alpha=args.lora_alpha,
+            lora_dropout=args.lora_dropout,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+            task_type="CAUSAL_LM",
+            bias="none",
+        )
+        print(f"[train_grpo] LoRA: r={args.lora_r} alpha={args.lora_alpha} dropout={args.lora_dropout}")
+
     trainer = GRPOTrainer(
         model=args.model,
         reward_funcs=[physics_reward, validity_reward, measurement_reward],
@@ -290,6 +312,7 @@ def main() -> None:
         train_dataset=train_ds,
         eval_dataset=eval_ds,
         environment_factory=AlienPhysicsGRPOEnv,
+        peft_config=peft_config,
     )
     trainer.train()
 
