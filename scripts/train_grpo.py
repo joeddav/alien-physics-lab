@@ -182,7 +182,11 @@ def main() -> None:
     ap.add_argument("--vllm-max-model-length", type=int, default=None,
                     help="vLLM max context (prompt+completion); raise for verbose models like Qwen3-4B.")
     ap.add_argument("--gpu-mem-util", type=float, default=None)
-    ap.add_argument("--measurement-noise", type=float, default=None, help="Hidden world noise (default 0.03).")
+    ap.add_argument("--measurement-noise", type=float, default=None, help="Constant hidden world noise (default 0.03).")
+    ap.add_argument("--noise-min", type=float, default=None,
+                    help="With --noise-max: per-world hidden noise drawn log-uniform in [min,max] "
+                         "(varies the optimal #measurements -> forces adaptive aggregation).")
+    ap.add_argument("--noise-max", type=float, default=None)
     ap.add_argument("--measurement-bonus", type=float, default=None,
                     help="Override the measurement-reward CAP (asymptote of the geometric reward; default 0.5).")
     ap.add_argument("--measurement-decay", type=float, default=None,
@@ -265,6 +269,9 @@ def main() -> None:
     ds_kwargs: dict[str, float] = {}
     if args.measurement_noise is not None:
         ds_kwargs["measurement_noise"] = args.measurement_noise
+    if args.noise_min is not None and args.noise_max is not None:
+        ds_kwargs["noise_min"] = args.noise_min
+        ds_kwargs["noise_max"] = args.noise_max
     train_ds, eval_ds = make_splits(n_train, n_eval, **ds_kwargs)
 
     print(
@@ -278,7 +285,11 @@ def main() -> None:
     # W&B run notes/tags: a self-documenting config summary + the run-specific "what's
     # special" note. wandb.init (fired inside GRPOTrainer) reads these env vars.
     if args.wandb:
-        noise = args.measurement_noise if args.measurement_noise is not None else 0.03
+        noise = (
+            f"{args.noise_min}-{args.noise_max}(log-uniform/world)"
+            if (args.noise_min is not None and args.noise_max is not None)
+            else (args.measurement_noise if args.measurement_noise is not None else 0.03)
+        )
         finetune = f"lora(r={args.lora_r},a={args.lora_alpha})" if args.lora else "full-bf16"
         auto = (
             f"model={args.model}; finetune={finetune}; preset={args.preset}; thinking={args.thinking}; "
