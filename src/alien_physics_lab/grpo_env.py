@@ -227,13 +227,31 @@ def measurement_reward(completions, environments, log_extra=None, **kwargs) -> l
     a parseable answer so it can't be farmed by measuring without ever answering.
     """
     out: list[float] = []
+    n_exps: list[float] = []
+    world_noises: list[float] = []
+    world_gravities: list[float] = []
     for completion, env in zip(completions, environments):
         answered = parse_boxed_gravity(_final_answer_text(completion)) is not None
         n_experiments = env._lab.tool_calls if env._lab is not None else 0
         beyond_first = max(0, n_experiments - 1)  # credit the 2nd+ measurement only
         bonus = MEASUREMENT_REWARD_CAP * (1.0 - MEASUREMENT_DECAY ** beyond_first)
         out.append(bonus if answered else 0.0)
+        # Diagnostics for the adaptive-aggregation analysis: per-rollout experiment
+        # count alongside the (group-constant) hidden world noise + gravity, so we can
+        # ask offline whether the policy aggregates MORE on noisier worlds. Constant
+        # within a group, but logged per-rollout to land as parquet columns. Purely
+        # additive logging — does NOT affect the reward value returned above.
+        n_exps.append(float(n_experiments))
+        if env._lab is not None:
+            world_noises.append(float(env._lab.world.measurement_noise))
+            world_gravities.append(float(env._lab.world.effective_gravity_m_s2))
+        else:
+            world_noises.append(float("nan"))
+            world_gravities.append(float("nan"))
     if log_extra is not None:
         log_extra("reward_measurement", out)
+        log_extra("n_experiments", n_exps)
+        log_extra("world_noise", world_noises)
+        log_extra("world_gravity", world_gravities)
     _dump_rewards("measurement", out, kwargs.get("trainer_state"))
     return out
