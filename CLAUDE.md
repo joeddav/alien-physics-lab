@@ -68,5 +68,7 @@ torch 2.11.0+cu129 · vLLM 0.22.1 nightly · transformers 5.9.0 · TRL 1.5.1 (NO
 ## Results
 
 Per-date result docs in `docs/results/YYYY-MM-DD-grpo.md`. Latest:
-`docs/results/2026-06-04-grpo.md` (measurement-reward design + the aggregation/exploration
-problem); `docs/results/2026-06-03-grpo.md` (setup + frozen-policy bug fix).
+`docs/results/2026-06-05-grpo.md` (diversity-knob runs — `--vary-tools` broke the n=2
+aggregation plateau: n_exp 1.4→3.5; lr-2e-6 safe; confounded, ablation pending);
+`docs/results/2026-06-04-grpo.md` (measurement-reward design + the diversity knobs);
+`docs/results/2026-06-03-grpo.md` (setup + frozen-policy bug fix).
