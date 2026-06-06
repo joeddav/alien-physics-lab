@@ -68,7 +68,10 @@ torch 2.11.0+cu129 · vLLM 0.22.1 nightly · transformers 5.9.0 · TRL 1.5.1 (NO
 ## Results
 
 Per-date result docs in `docs/results/YYYY-MM-DD-grpo.md`. Latest:
+`docs/results/2026-06-06-grpo.md` (KL-beta tuning: beta=0 diverges, 0.02 prevents it but
+over-anchors/plateaus, probing 0.01; entropy is NOT in the GRPO loss — KL is the de-facto
+regulator; reward oscillation = 1-world/step sampling noise, not instability);
 `docs/results/2026-06-05-grpo.md` (diversity-knob runs — `--vary-tools` broke the n=2
-aggregation plateau: n_exp 1.4→3.5; lr-2e-6 safe; confounded, ablation pending);
+aggregation plateau: n_exp 1.4→3.5; lr-2e-6 safe; the 1k run learns to n≈9 then diverges);
 `docs/results/2026-06-04-grpo.md` (measurement-reward design + the diversity knobs);
 `docs/results/2026-06-03-grpo.md` (setup + frozen-policy bug fix).
