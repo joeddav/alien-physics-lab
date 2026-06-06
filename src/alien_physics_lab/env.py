@@ -33,6 +33,11 @@ class AlienPhysicsLab:
     max_tool_calls: int = 5
     success_tolerance: float = 0.03
     reward_zero_tolerance: float = 0.12
+    # Rotating target: which hidden quantity the agent is asked to report this episode.
+    # "gravity" -> effective_gravity_m_s2 (m/s^2); "diameter" -> world_diameter_m (m);
+    # "spin" -> sidereal day length in HOURS (= 2*pi/world_spin_rad_s/3600). Default keeps
+    # the original gravity task byte-identical.
+    target: str = "gravity"
     transcript: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -114,6 +119,12 @@ class AlienPhysicsLab:
             result = self._drop_ball(**kwargs)
         elif name == "pendulum_period":
             result = self._pendulum_period(**kwargs)
+        elif name == "measure_horizon_dip":
+            result = self._horizon_dip(**kwargs)
+        elif name == "foucault_pendulum":
+            result = self._foucault_precession(**kwargs)
+        elif name == "star_tracker":
+            result = self._star_altitude(**kwargs)
         elif name == "calculator":
             result = self._calculator(**kwargs)
         else:
@@ -157,6 +168,66 @@ class AlienPhysicsLab:
             "length_m": length_m,
             "measured_period_s": self._measure(period_s),
         }
+
+    def _horizon_dip(self, *, height_m: float) -> dict[str, Any]:
+        """Diameter experiment: from height h, how far below level the horizon sits.
+
+        Exact geometry: cos(dip) = R/(R+h), so dip = acos(R/(R+h)). Pure function of the
+        planet radius R = world_diameter_m/2 (independent of g/spin/mass). The agent inverts
+        via R = 2h/alpha^2 (alpha in RADIANS, small-angle) or R = h*cos(alpha)/(1-cos(alpha)).
+        """
+        height_m = _require_range("height_m", height_m, 0.1, 1000.0)
+        radius_m = self.world.world_diameter_m / 2.0
+        dip_deg = math.degrees(math.acos(radius_m / (radius_m + height_m)))
+        return {"height_m": height_m, "measured_dip_deg": self._measure(dip_deg)}
+
+    def _foucault_precession(self) -> dict[str, Any]:
+        """Spin experiment: the precession rate of a Foucault pendulum's swing plane.
+
+        omega_prec = Omega * sin(latitude) (Omega = world_spin_rad_s). Returns the RATE in
+        deg/hour. Combine with the latitude from star_tracker: Omega = omega_prec / sin(lat).
+        """
+        omega = self.world.world_spin_rad_s
+        lat_rad = math.radians(self.world.lab_latitude_deg)
+        rate_deg_per_hr = math.degrees(omega * math.sin(lat_rad)) * 3600.0
+        return {"precession_rate_deg_per_hr": self._measure(rate_deg_per_hr)}
+
+    def _star_altitude(self) -> dict[str, Any]:
+        """Spin experiment: altitude of the celestial pole (the fixed point the stars rotate
+        around) above the horizon. This equals the latitude. Deliberately does NOT report the
+        day length, so spin must be solved from the Foucault rate + this latitude.
+        """
+        return {"celestial_pole_altitude_deg": self._measure(self.world.lab_latitude_deg)}
+
+    def true_target_value(self) -> float:
+        """The hidden ground-truth value for this episode's target (see `target`)."""
+        if self.target == "diameter":
+            return self.world.world_diameter_m
+        if self.target == "spin":
+            return 2.0 * math.pi / self.world.world_spin_rad_s / 3600.0  # sidereal day, hours
+        return self.world.effective_gravity_m_s2
+
+    def score_value(self, predicted: float | None) -> LabResult:
+        """Target-agnostic relative-error scorer (same bands as score_answer). Scores a raw
+        predicted number against `true_target_value()` for the current target."""
+        true_v = self.true_target_value()
+        if predicted is None or not math.isfinite(float(predicted)):
+            return LabResult(
+                score=0.0, success=False, relative_error=None,
+                true_gravity_m_s2=true_v, predicted_gravity_m_s2=None,
+                tool_calls=self.tool_calls, calculator_calls=self.calculator_calls,
+                message="no finite prediction",
+            )
+        predicted = float(predicted)
+        rel_err = abs(predicted - true_v) / abs(true_v)
+        score = max(0.0, 1.0 - rel_err / self.reward_zero_tolerance)
+        success = rel_err <= self.success_tolerance
+        return LabResult(
+            score=round(score, 4), success=success, relative_error=rel_err,
+            true_gravity_m_s2=true_v, predicted_gravity_m_s2=predicted,
+            tool_calls=self.tool_calls, calculator_calls=self.calculator_calls,
+            message="ok" if success else "prediction outside success tolerance",
+        )
 
     def _calculator(self, *, expression: str) -> dict[str, Any]:
         if not isinstance(expression, str):
@@ -324,9 +395,15 @@ def _eval_ast(node: ast.AST) -> float:
         if not isinstance(node.func, ast.Name) or len(node.args) != 1 or node.keywords:
             raise ValueError("calculator supports one-argument functions only")
         value = _eval_ast(node.args[0])
-        if node.func.id == "sqrt":
-            return math.sqrt(value)
-        if node.func.id == "abs":
-            return abs(value)
+        funcs = {
+            "sqrt": math.sqrt, "abs": abs,
+            "sin": math.sin, "cos": math.cos, "tan": math.tan,
+            "asin": math.asin, "acos": math.acos, "atan": math.atan,
+            "radians": math.radians, "degrees": math.degrees,
+        }
+        fn = funcs.get(node.func.id)
+        if fn is not None:
+            return fn(value)
+        raise ValueError(f"unknown calculator function: {node.func.id}")
 
     raise ValueError(f"unsupported calculator expression: {ast.dump(node)}")
