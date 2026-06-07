@@ -186,5 +186,51 @@ class DatasetKnobTest(unittest.TestCase):
             self.assertLessEqual(mult, PRECISION_TOL_MAX_MULT + 1e-9)
 
 
+class DiameterTaskTest(unittest.TestCase):
+    def test_dataset_draws_diameter_worlds(self) -> None:
+        from alien_physics_lab.grpo_data import DIAMETER_MAX, DIAMETER_MIN, make_dataset
+        a = make_dataset(8, seed_start=0, target="diameter")
+        b = make_dataset(8, seed_start=0, target="diameter")
+        for ra, rb in zip(a, b):
+            self.assertEqual(ra["target"], "diameter")
+            self.assertEqual(ra["available_tools"], "measure_horizon_dip")
+            self.assertEqual(ra["world_diameter_m"], rb["world_diameter_m"])  # CRN-deterministic
+            self.assertGreaterEqual(ra["world_diameter_m"], DIAMETER_MIN - 1)
+            self.assertLessEqual(ra["world_diameter_m"], DIAMETER_MAX + 1)
+
+    def test_reset_recovers_diameter_and_soft_disables_gravity_tools(self) -> None:
+        env = AlienPhysicsGRPOEnv()
+        briefing = env.reset(seed=5, target="diameter", world_diameter_m=8.0e6,
+                             available_tools="measure_horizon_dip", measurement_noise=0.0)
+        self.assertEqual(env._target, "diameter")
+        self.assertEqual(env._lab.target, "diameter")
+        self.assertIn("diameter", briefing.lower())
+        self.assertIn("measure_horizon_dip", briefing)
+        # recover diameter from the (noise-free) dip via R = 2h/alpha^2
+        dip = json.loads(env.measure_horizon_dip(height_m=500.0))["measured_dip_deg"]
+        alpha = math.radians(dip)
+        d_est = 2 * (2 * 500.0 / alpha**2)
+        self.assertTrue(env._lab.score_value(d_est).success)
+        # gravity tools soft-disabled on a diameter world
+        out = json.loads(env.drop_ball(mass_kg=1.0, height_m=20.0))
+        self.assertIn("error", out)
+        self.assertEqual(env._lab.tool_calls, 1)  # only the dip counted
+
+    def test_gravity_world_soft_disables_horizon_dip(self) -> None:
+        env = AlienPhysicsGRPOEnv()
+        env.reset(seed=7)  # gravity (default)
+        out = json.loads(env.measure_horizon_dip(height_m=500.0))
+        self.assertIn("error", out)
+        # drop_ball still works on a gravity world
+        ok = json.loads(env.drop_ball(mass_kg=1.0, height_m=20.0))
+        self.assertIn("measured_time_s", ok)
+
+    def test_score_value_targets_diameter(self) -> None:
+        env = AlienPhysicsGRPOEnv()
+        env.reset(seed=5, target="diameter", world_diameter_m=8.0e6, available_tools="measure_horizon_dip")
+        self.assertTrue(env._lab.score_value(8.0e6 * 1.02).success)   # 2% < 3%
+        self.assertFalse(env._lab.score_value(8.0e6 * 1.05).success)  # 5% > 3%
+
+
 if __name__ == "__main__":
     unittest.main()

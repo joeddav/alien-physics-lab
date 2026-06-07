@@ -68,6 +68,25 @@ SCENARIO_INTROS = [
     ),
 ]
 
+# Diameter-target briefing (static; the gravity-task knobs don't apply). Mirrors the gravity
+# briefing structure (tool list + relation + boxed directive). The radians() emphasis is the
+# #1 mitigation for the deg/rad trap (R=2h/alpha^2 has alpha squared -> a deg/rad slip is ~3283x).
+DIAMETER_BRIEFING = (
+    "You are in an alien physics lab on an unknown planet. Your task is to infer the "
+    "planet's diameter in meters by running experiments.\n\n"
+    "Available tools:\n"
+    "- measure_horizon_dip(height_m: 0.1 to 1000): climb to a height and measure how far "
+    "below level the horizon appears (the dip angle, in degrees).\n"
+    "- calculator(expression: string) for arithmetic (supports radians, sin, cos, sqrt, ...).\n\n"
+    "From height h the horizon dips below level by angle alpha, where cos(alpha) = R/(R+h) and "
+    "R is the planet's radius. For small angles R = 2*h/alpha^2 with ALPHA IN RADIANS (convert "
+    "with radians(): e.g. if the dip is 0.5 degrees, alpha = radians(0.5)). The diameter is 2*R. "
+    "Measurements may vary slightly between trials, so repeat experiments and average when "
+    "precision matters. When you are confident, STOP calling tools and give your final answer "
+    "as a boxed number of meters on its own, e.g. \\boxed{12742000}. Do not call a tool for "
+    "the final answer."
+)
+
 SUCCESS_BONUS = 0.25
 VALIDITY_BONUS = 0.1
 # Measurement reward: saturating ("geometric") reward crediting the 2nd-AND-LATER experiment
@@ -109,7 +128,7 @@ def _final_answer_text(completion: Any) -> str:
     return ""
 
 
-def parse_boxed_gravity(text: str) -> float | None:
+def parse_boxed_value(text: str) -> float | None:
     """Extract the number from the LAST ``\\boxed{...}`` in `text` (after </think> if present).
 
     Robust to LaTeX/units inside the box (e.g. ``\\boxed{14.7\\,\\text{m/s}^2}``) by taking
@@ -151,6 +170,7 @@ class AlienPhysicsGRPOEnv:
         self._lab: AlienPhysicsLab | None = None
         self._available: set[str] | None = None  # knob 2: usable experiments (None = all)
         self._template_idx: int = 0  # knob 3: scenario-framing template
+        self._target: str = "gravity"  # rotating target this episode
 
     # ------------------------------------------------------------------ reset
     def reset(
@@ -164,6 +184,8 @@ class AlienPhysicsGRPOEnv:
         success_tolerance: float | None = None,
         available_tools: str | None = None,
         template_idx: int = 0,
+        target: str = "gravity",
+        world_diameter_m: float | None = None,
         **_ignored: Any,
     ) -> str:
         """Start a fresh hidden world for this rollout and return the briefing.
@@ -186,14 +208,25 @@ class AlienPhysicsGRPOEnv:
             measurement_noise=measurement_noise,
             max_tool_calls=max_tool_calls,
             success_tolerance=success_tolerance,
+            world_diameter_m=world_diameter_m,
+            target=target,
         )
-        # Knob 2: resolve which experiments are usable (calculator always on). None = all.
+        self._target = target
+        # Knob 2: resolve which experiments are usable (calculator always on).
         if available_tools is None:
-            self._available = None
+            # Default to the gravity tool set so the always-advertised cross-target tools
+            # (measure_horizon_dip, etc.) are soft-disabled on gravity worlds. The briefing is
+            # byte-identical to before because instructions() lists the same three tools.
+            self._available = {"drop_ball", "pendulum_period", "calculator"}
         else:
             self._available = {t.strip() for t in available_tools.split(",") if t.strip()}
             self._available.add("calculator")
         self._template_idx = template_idx
+
+        # Non-gravity targets get a dedicated static briefing (the gravity-task knobs —
+        # scenario template / precision clause / drop+pendulum tool list — don't apply).
+        if target == "diameter":
+            return "\n\n" + DIAMETER_BRIEFING
 
         # Tool-list section from instructions() (lists only the available experiments);
         # strip its JSON-answer tail since we use a boxed answer.
@@ -241,6 +274,14 @@ class AlienPhysicsGRPOEnv:
         """
         return self._call("pendulum_period", length_m=length_m)
 
+    def measure_horizon_dip(self, height_m: float) -> str:
+        """Climb to a height and measure how far below level the horizon appears.
+
+        Args:
+            height_m: Observation height in meters (between 0.1 and 1000).
+        """
+        return self._call("measure_horizon_dip", height_m=height_m)
+
     def calculator(self, expression: str) -> str:
         """Evaluate one arithmetic expression. Free: does not consume budget.
 
@@ -278,11 +319,13 @@ def physics_reward(completions, environments, log_extra=None, **kwargs) -> list[
     """
     out: list[float] = []
     for completion, env in zip(completions, environments):
-        g = parse_boxed_gravity(_final_answer_text(completion))
-        if g is None or env._lab is None:
+        v = parse_boxed_value(_final_answer_text(completion))
+        if v is None or env._lab is None:
             out.append(0.0)
             continue
-        result = env._lab.score_answer({"gravity_m_s2": float(g)})
+        # Score the boxed number against THIS episode's target (gravity/diameter/spin).
+        # For gravity worlds this equals the old score_answer({"gravity_m_s2": g}).
+        result = env._lab.score_value(float(v))
         out.append(float(result.score) + (SUCCESS_BONUS if result.success else 0.0))
     if log_extra is not None:
         log_extra("reward_physics", out)
@@ -294,7 +337,7 @@ def validity_reward(completions, environments, log_extra=None, **kwargs) -> list
     """Small shaping reward: produced a parseable boxed answer AND ran >=1 experiment."""
     out: list[float] = []
     for completion, env in zip(completions, environments):
-        answered = parse_boxed_gravity(_final_answer_text(completion)) is not None
+        answered = parse_boxed_value(_final_answer_text(completion)) is not None
         ran = env._lab is not None and env._lab.tool_calls > 0
         out.append(VALIDITY_BONUS if (answered and ran) else 0.0)
     if log_extra is not None:
@@ -320,7 +363,7 @@ def measurement_reward(completions, environments, log_extra=None, **kwargs) -> l
     world_tools: list[str] = []
     template_idxs: list[float] = []
     for completion, env in zip(completions, environments):
-        answered = parse_boxed_gravity(_final_answer_text(completion)) is not None
+        answered = parse_boxed_value(_final_answer_text(completion)) is not None
         n_experiments = env._lab.tool_calls if env._lab is not None else 0
         beyond_first = max(0, n_experiments - 1)  # credit the 2nd+ measurement only
         bonus = MEASUREMENT_REWARD_CAP * (1.0 - MEASUREMENT_DECAY ** beyond_first)

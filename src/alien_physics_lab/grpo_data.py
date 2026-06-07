@@ -60,6 +60,13 @@ _NOISE_MULT_RNG = (7919, 13)
 _TOL_RNG = (15485863, 7)
 _TOOLS_RNG = (32452843, 17)
 _TMPL_RNG = (49979687, 23)
+_DIAM_RNG = (86028121, 11)
+
+# Diameter target: per-world hidden diameter, log-uniform (radius 1.5e5..6.371e6 m -> diameter
+# [3e5, 1.2742e7]; keeps small-angle dip bias <0.3%). Multiplicative noise makes relative error
+# scale-invariant, so any size is winnable with modest averaging.
+DIAMETER_MIN = 3.0e5
+DIAMETER_MAX = 1.2742e7
 
 # Disjoint seed ranges so the held-out eval split never overlaps training worlds.
 TRAIN_SEED_START = 0
@@ -67,8 +74,8 @@ EVAL_SEED_START = 1_000_000
 
 SYSTEM_PROMPT = (
     "You are a careful experimental physicist working in an alien physics lab. "
-    "Use the available experiment tools to infer the lab's effective gravity, "
-    "then call submit_answer with your best estimate."
+    "Use the available experiment tools to make measurements and reason from them to "
+    "determine the requested quantity, then give your final answer as a boxed number."
 )
 USER_PROMPT = "Begin the experiment."
 
@@ -86,6 +93,7 @@ def make_dataset(
     vary_precision: bool = False,
     vary_tools: bool = False,
     vary_prompt: bool = False,
+    target: str = "gravity",
 ) -> Dataset:
     """Build a dataset of ``n_rows`` distinct hidden worlds (one seed each).
 
@@ -119,26 +127,30 @@ def make_dataset(
         else:
             noise = measurement_noise
 
-        if vary_precision:
-            rng_tol = random.Random(seed * _TOL_RNG[0] + _TOL_RNG[1])
-            mult = math.exp(
-                rng_tol.uniform(math.log(PRECISION_TOL_MIN_MULT), math.log(PRECISION_TOL_MAX_MULT))
-            )
-            success_tolerance: float | None = noise * mult
-        else:
-            success_tolerance = None
+        success_tolerance: float | None = None
+        available_tools: str | None = None
+        template_idx = 0
+        world_diameter_m: float | None = None
 
-        if vary_tools:
-            rng_tools = random.Random(seed * _TOOLS_RNG[0] + _TOOLS_RNG[1])
-            available_tools: str | None = TOOL_SUBSETS[rng_tools.randrange(len(TOOL_SUBSETS))]
-        else:
-            available_tools = None
-
-        if vary_prompt:
-            rng_tmpl = random.Random(seed * _TMPL_RNG[0] + _TMPL_RNG[1])
-            template_idx = rng_tmpl.randrange(N_TEMPLATES)
-        else:
-            template_idx = 0
+        if target == "diameter":
+            # Diameter world: hidden per-world diameter, horizon-dip tool only. The gravity
+            # knobs (precision/tools/prompt) don't apply; gravity stays set but unused.
+            rng_d = random.Random(seed * _DIAM_RNG[0] + _DIAM_RNG[1])
+            world_diameter_m = math.exp(rng_d.uniform(math.log(DIAMETER_MIN), math.log(DIAMETER_MAX)))
+            available_tools = "measure_horizon_dip"
+        else:  # gravity target + its diversity knobs
+            if vary_precision:
+                rng_tol = random.Random(seed * _TOL_RNG[0] + _TOL_RNG[1])
+                mult = math.exp(
+                    rng_tol.uniform(math.log(PRECISION_TOL_MIN_MULT), math.log(PRECISION_TOL_MAX_MULT))
+                )
+                success_tolerance = noise * mult
+            if vary_tools:
+                rng_tools = random.Random(seed * _TOOLS_RNG[0] + _TOOLS_RNG[1])
+                available_tools = TOOL_SUBSETS[rng_tools.randrange(len(TOOL_SUBSETS))]
+            if vary_prompt:
+                rng_tmpl = random.Random(seed * _TMPL_RNG[0] + _TMPL_RNG[1])
+                template_idx = rng_tmpl.randrange(N_TEMPLATES)
 
         rows.append(
             {
@@ -154,6 +166,8 @@ def make_dataset(
                 "success_tolerance": success_tolerance,
                 "available_tools": available_tools,
                 "template_idx": template_idx,
+                "target": target,
+                "world_diameter_m": world_diameter_m,
             }
         )
     return Dataset.from_list(rows)

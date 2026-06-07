@@ -195,6 +195,9 @@ def main() -> None:
                     help="Knob 2: per-world available experiments (drop_ball / pendulum_period / both).")
     ap.add_argument("--vary-prompt", action="store_true",
                     help="Knob 3: per-world scenario-framing template (paraphrase).")
+    ap.add_argument("--target", choices=("gravity", "diameter"), default="gravity",
+                    help="Which hidden quantity to train on. 'diameter' = the horizon-dip task "
+                         "(single tool, g-independent geometry).")
     ap.add_argument("--measurement-bonus", type=float, default=None,
                     help="Override the measurement-reward CAP (asymptote of the geometric reward; default 0.5).")
     ap.add_argument("--measurement-decay", type=float, default=None,
@@ -286,6 +289,8 @@ def main() -> None:
         ds_kwargs["vary_tools"] = True
     if args.vary_prompt:
         ds_kwargs["vary_prompt"] = True
+    if args.target != "gravity":
+        ds_kwargs["target"] = args.target
     train_ds, eval_ds = make_splits(n_train, n_eval, **ds_kwargs)
 
     print(

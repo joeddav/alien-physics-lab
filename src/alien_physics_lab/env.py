@@ -53,13 +53,20 @@ class AlienPhysicsLab:
         measurement_noise: float = 0.005,
         max_tool_calls: int = 5,
         success_tolerance: float | None = None,
+        world_diameter_m: float | None = None,
+        target: str = "gravity",
     ) -> "AlienPhysicsLab":
         rng = random.Random(seed)
-        world = WorldParams(
+        world_kwargs: dict[str, Any] = dict(
             gravity_m_s2=rng.uniform(gravity_min, gravity_max),
             measurement_noise=measurement_noise,
             seed=seed,
         )
+        # Per-world hidden diameter (diameter target). gravity_m_s2 stays set explicitly so
+        # effective gravity is unchanged — diameter is read only by the horizon-dip tool.
+        if world_diameter_m is not None:
+            world_kwargs["world_diameter_m"] = world_diameter_m
+        world = WorldParams(**world_kwargs)
         # Per-world required precision (knob 1): when set, calibrate the success band and
         # the proportional zero-reward band per world; otherwise the dataclass defaults
         # (0.03 / 0.12) stand -> byte-identical to before.
@@ -67,7 +74,7 @@ class AlienPhysicsLab:
         if success_tolerance is not None:
             extra["success_tolerance"] = success_tolerance
             extra["reward_zero_tolerance"] = success_tolerance * REWARD_ZERO_RATIO
-        return cls(world=world, max_tool_calls=max_tool_calls, **extra)
+        return cls(world=world, max_tool_calls=max_tool_calls, target=target, **extra)
 
     @property
     def tool_calls(self) -> int:
