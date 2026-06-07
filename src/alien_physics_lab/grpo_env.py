@@ -312,10 +312,13 @@ class AlienPhysicsGRPOEnv:
 
 # --------------------------------------------------------------------- rewards
 def physics_reward(completions, environments, log_extra=None, **kwargs) -> list[float]:
-    """Accuracy reward from the boxed final answer: env score + success bonus.
+    """ACCURACY reward from the boxed final answer: env score + success bonus.
 
-    Parses ``\\boxed{g}`` from each rollout's final text and scores it against the hidden
-    gravity. No boxed value -> 0.0 (teaches the model to actually conclude with the format).
+    NOTE: "physics" is a legacy name (kept so the W&B metric key stays stable across runs) —
+    this is the general accuracy reward and scores against THIS episode's *target*
+    (gravity / diameter / spin) via score_value, not gravity specifically. Parses the boxed
+    number; no boxed value -> 0.0. For mixed-target runs this blends targets, so analyze
+    accuracy by grouping rollouts on the logged `target` column rather than reading it raw.
     """
     out: list[float] = []
     for completion, env in zip(completions, environments):
@@ -362,6 +365,8 @@ def measurement_reward(completions, environments, log_extra=None, **kwargs) -> l
     world_tolerances: list[float] = []
     world_tools: list[str] = []
     template_idxs: list[float] = []
+    targets: list[str] = []
+    world_diameters: list[float] = []
     for completion, env in zip(completions, environments):
         answered = parse_boxed_value(_final_answer_text(completion)) is not None
         n_experiments = env._lab.tool_calls if env._lab is not None else 0
@@ -386,6 +391,10 @@ def measurement_reward(completions, environments, log_extra=None, **kwargs) -> l
         avail = getattr(env, "_available", None)
         world_tools.append(",".join(sorted(avail - {"calculator"})) if avail else "all")
         template_idxs.append(float(getattr(env, "_template_idx", 0)))
+        # Per-rollout target + diameter so mixed-target runs can be grouped BY TASK offline
+        # (one accuracy reward scored against env.target; we group rather than split rewards).
+        targets.append(getattr(env, "_target", "gravity"))
+        world_diameters.append(float(env._lab.world.world_diameter_m) if env._lab is not None else float("nan"))
     if log_extra is not None:
         log_extra("reward_measurement", out)
         log_extra("n_experiments", n_exps)
@@ -394,5 +403,7 @@ def measurement_reward(completions, environments, log_extra=None, **kwargs) -> l
         log_extra("world_tolerance", world_tolerances)
         log_extra("world_tools", world_tools)
         log_extra("template_idx", template_idxs)
+        log_extra("target", targets)
+        log_extra("world_diameter", world_diameters)
     _dump_rewards("measurement", out, kwargs.get("trainer_state"))
     return out

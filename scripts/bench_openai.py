@@ -167,7 +167,7 @@ def main():
                 relerrs.append(res.relative_error)
             else:
                 fails += 1
-            print(f"  [{target:8s}] ep{ep:02d} pred={pred} true={res.true_gravity_m_s2:.4g} "
+            print(f"  [{target:8s}] ep{ep:02d} pred={pred} true={res.true_value:.4g} "
                   f"relerr={'%.1f%%'%(res.relative_error*100) if res.relative_error is not None else 'NA':>7} "
                   f"{'OK' if ok else '..'} tools={lab.tool_calls} ({status})")
         med = st.median(relerrs) if relerrs else float('nan')

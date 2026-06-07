@@ -20,8 +20,8 @@ class LabResult:
     score: float
     success: bool
     relative_error: float | None
-    true_gravity_m_s2: float
-    predicted_gravity_m_s2: float | None
+    true_value: float
+    predicted_value: float | None
     tool_calls: int
     calculator_calls: int
     message: str
@@ -221,7 +221,7 @@ class AlienPhysicsLab:
         if predicted is None or not math.isfinite(float(predicted)):
             return LabResult(
                 score=0.0, success=False, relative_error=None,
-                true_gravity_m_s2=true_v, predicted_gravity_m_s2=None,
+                true_value=true_v, predicted_value=None,
                 tool_calls=self.tool_calls, calculator_calls=self.calculator_calls,
                 message="no finite prediction",
             )
@@ -231,7 +231,7 @@ class AlienPhysicsLab:
         success = rel_err <= self.success_tolerance
         return LabResult(
             score=round(score, 4), success=success, relative_error=rel_err,
-            true_gravity_m_s2=true_v, predicted_gravity_m_s2=predicted,
+            true_value=true_v, predicted_value=predicted,
             tool_calls=self.tool_calls, calculator_calls=self.calculator_calls,
             message="ok" if success else "prediction outside success tolerance",
         )
@@ -285,8 +285,8 @@ class AlienPhysicsLab:
                 score=0.0,
                 success=False,
                 relative_error=None,
-                true_gravity_m_s2=true_g,
-                predicted_gravity_m_s2=None,
+                true_value=true_g,
+                predicted_value=None,
                 tool_calls=self.tool_calls,
                 calculator_calls=self.calculator_calls,
                 message="answer was not valid JSON",
@@ -301,8 +301,8 @@ class AlienPhysicsLab:
                 score=0.0,
                 success=False,
                 relative_error=None,
-                true_gravity_m_s2=true_g,
-                predicted_gravity_m_s2=None,
+                true_value=true_g,
+                predicted_value=None,
                 tool_calls=self.tool_calls,
                 calculator_calls=self.calculator_calls,
                 message="answer did not contain finite gravity_m_s2",
@@ -317,8 +317,8 @@ class AlienPhysicsLab:
             score=round(score, 4),
             success=success,
             relative_error=relative_error,
-            true_gravity_m_s2=true_g,
-            predicted_gravity_m_s2=predicted_g,
+            true_value=true_g,
+            predicted_value=predicted_g,
             tool_calls=self.tool_calls,
             calculator_calls=self.calculator_calls,
             message="ok" if success else "prediction outside success tolerance",

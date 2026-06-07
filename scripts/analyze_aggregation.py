@@ -210,6 +210,17 @@ def main() -> None:
             out(f"| {int(t)} | {len(dd)} | {fmt(phys)} | {fmt(dd['n_experiments'].mean(), 2)} |")
         out()
 
+    # Accuracy/behavior grouped BY TASK (one accuracy reward scored per-target; we group
+    # rather than split rewards). Useful for mixed-target runs; harmless for single-target.
+    if "target" in df.columns:
+        out("## By target (group rollouts by task)")
+        out("| target | rollouts | mean n_exp | physics |")
+        out("|---|---|---|---|")
+        for t, dd in df.groupby("target"):
+            phys = dd["physics_reward"].mean() if "physics_reward" in dd else float("nan")
+            out(f"| {t} | {len(dd)} | {fmt(dd['n_experiments'].mean(), 2)} | {fmt(phys)} |")
+        out()
+
     if args.md:
         with open(args.md, "w") as f:
             f.write("\n".join(lines) + "\n")
