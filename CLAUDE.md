@@ -68,6 +68,9 @@ torch 2.11.0+cu129 · vLLM 0.22.1 nightly · transformers 5.9.0 · TRL 1.5.1 (NO
 ## Results
 
 Per-date result docs in `docs/results/YYYY-MM-DD-grpo.md`. Latest:
+`docs/results/2026-06-07-grpo.md` (NEW diameter task via horizon-dip — first run trains to
+gravity-level: physics→0.48, reward→0.87, learned to aggregate to n≈6, stable; + the
+1-world→4-worlds-per-step batching fix);
 `docs/results/2026-06-06-grpo.md` (KL-beta tuning: beta=0 diverges, 0.02 prevents it but
 over-anchors/plateaus, probing 0.01; entropy is NOT in the GRPO loss — KL is the de-facto
 regulator; reward oscillation = 1-world/step sampling noise, not instability);
