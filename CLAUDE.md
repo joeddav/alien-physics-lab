@@ -68,10 +68,11 @@ torch 2.11.0+cu129 · vLLM 0.22.1 nightly · transformers 5.9.0 · TRL 1.5.1 (NO
 ## Results
 
 Per-date result docs in `docs/results/YYYY-MM-DD-grpo.md`. Latest:
-`docs/results/2026-06-08-grpo.md` (diameter at lr=4e-6 — the explore-vs-stability tension:
-diameter is already solved at lr=2e-6 [06-07], but pushing lr→4e-6 for speed destabilizes it:
+`docs/results/2026-06-08-grpo.md` (diameter at lr=4e-6 — explore-vs-stability beta sweep:
 beta=0.005 learns-then-entropy-runaway ~step160, beta=0.01 stable-but-frozen [n stuck at 1],
-beta=0.0075 bisection running; lr=4e-6 is too hot for the long horizon-dip completions);
+**beta=0.0075 WINS** [n→10, accuracy 0.60, stable through 250, beats the lr=2e-6 recipe's 0.476].
+New diameter recipe lr=4e-6/beta=0.0075/4-worlds-step; open watch-item: entropy gently rising at
+step 250, longer-horizon confirmation pending; conservative fallback is the proven lr=2e-6/beta=0.005);
 `docs/results/2026-06-07-grpo.md` (NEW diameter task via horizon-dip — first run trains to
 gravity-level: physics→0.48, reward→0.87, learned to aggregate to n≈6, stable, AT lr=2e-6; + the
 1-world→4-worlds-per-step batching fix);
