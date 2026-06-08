@@ -1,14 +1,17 @@
 # CLAUDE.md — Alien Physics Lab
 
-RLVR-style playground: an agent is dropped in an alien lab with hidden physics, runs
-experiments (drop_ball / pendulum_period / calculator) and submits a scored answer as
-`\boxed{g}`. Current task: recover effective gravity. (No tool budget, no public world
-params — both removed; gravity is inferred purely by experiment.) Two layers:
+RLVR **RL-training** project: train a local model (Qwen3-1.7B, full bf16) with multi-turn GRPO
+(TRL) to do active experimental reasoning — dropped in an alien lab with hidden physics, it runs
+experiments (drop_ball / pendulum_period / calculator), aggregates noisy readings, and submits a
+verifiable scored answer as `\boxed{g}`. Current task: recover effective gravity (inferred purely
+by experiment; no tool budget, no public world params). Two layers:
 
-1. **Environment** (`src/alien_physics_lab/`): `world.py` (hidden `WorldParams`),
-   `env.py` (`AlienPhysicsLab` tools + scoring), `agents.py` (heuristic baseline),
-   `openai_runner.py`/`hf_runner.py`/`mlx_runner.py` (model runners), `cli.py`.
-2. **GRPO training** (added 2026-06-03): TRL v1 multi-turn RL on this env.
+1. **GRPO training** (the point, added 2026-06-03): `scripts/train_grpo.py`, `grpo_env.py` (TRL
+   multi-turn wrapper + rewards), `grpo_data.py` (procedural episodes). Multi-turn RL, colocated vLLM.
+2. **Environment** (`src/alien_physics_lab/`): `world.py` (hidden `WorldParams`), `env.py`
+   (`AlienPhysicsLab` tools + verifier). **Baselines/eval only, NOT in the training path**:
+   `agents.py` (heuristic), `openai_runner.py`/`hf_runner.py`/`mlx_runner.py` (run API/local models
+   through the env for task-validation + comparison), `cli.py` (`eval-*`).
 
 ## GRPO training quickstart
 

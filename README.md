@@ -1,23 +1,33 @@
 # Alien Physics Lab
 
-A small RLVR-style playground for **active experimental reasoning**: an agent is dropped
-into an alien lab whose physics it cannot see, runs experiments to probe it, reasons from
-the (noisy) measurements, and submits a single answer that is scored automatically. The
-reward is *verifiable* — it comes from the hidden world state, not a learned judge — which
-makes the task a clean target for RL.
+**This is an RL training project.** It trains a local language model — **Qwen3-1.7B**, full
+fine-tuning — with multi-turn **GRPO** (TRL) to do *active experimental reasoning*. Dropped into
+an alien lab whose physics it cannot observe, the model must run noisy experiments, aggregate the
+readings, and submit one boxed answer. The reward is **verifiable** (RLVR): a programmatic verifier
+scores the answer against the hidden world state — there is **no learned judge** — which makes it a
+clean RL signal. The current task is to **recover the lab's effective gravity** `g` purely by
+experiment (nothing about `g` is given; an episode ends when the model stops calling tools and
+writes e.g. `\boxed{14.7}`).
 
-The current task is deliberately narrow: **recover the lab's effective gravity** `g`
-(m/s²) from noisy experiments. Nothing about `g` is given in advance — the only way to
-determine it is to experiment and reason. An episode ends when the agent stops calling
-tools and writes its final answer as a boxed number, e.g. `\boxed{14.7}`; a parser reads
-that value and scores it against the hidden gravity.
+The headline work is the **training loop and what the policy learns** — see
+[Training](#grpo-training) and the dated write-ups in [`docs/results/`](docs/results/). The
+environment, tools, and verifier exist to produce the reward.
 
-Two layers live in this repo:
+> **The model runners are baselines, not the training loop.** The OpenAI / Hugging Face / MLX
+> runners (`*_runner.py`) and the `alien-lab eval-*` CLI commands exist only to (a) validate a task
+> is well-posed before committing GPU — e.g. benchmarking `gpt-4o-mini` on a new task — and (b)
+> compare the trained policy against an untrained baseline. **They are not in the training path**:
+> `scripts/train_grpo.py` fine-tunes a local model on-GPU via TRL + colocated vLLM and never imports
+> a runner. So "calls the OpenAI API" describes a *baseline harness* here — not how the model is trained.
 
-1. **Environment** (`src/alien_physics_lab/`) — the lab, its tools, and the verifier.
-2. **GRPO training** (`scripts/train_grpo.py`) — multi-turn RL (TRL) that trains a model
-   to do the experimental reasoning. This is where most of the action is; see
-   [Training](#grpo-training) below.
+The repo has two layers:
+
+1. **GRPO training** (`scripts/train_grpo.py`, `src/alien_physics_lab/grpo_env.py`, `grpo_data.py`)
+   — the multi-turn RL loop, the reward functions, and procedural episode generation. **This is the
+   project**; see [Training](#grpo-training).
+2. **Environment** (`src/alien_physics_lab/world.py`, `env.py`) — the hidden world, the experiment
+   tools, and the verifier that turns an answer into a reward. Plus the heuristic + model-runner
+   baselines and the `alien-lab` CLI for hand-stepping and evaluating.
 
 ## How the task works
 
@@ -52,17 +62,20 @@ when the precision knob is enabled (see below).
 |---|---|
 | `src/alien_physics_lab/world.py` | `WorldParams` (hidden state) + effective-gravity model |
 | `src/alien_physics_lab/env.py` | `AlienPhysicsLab` — tools, simulation, `score_answer` verifier |
-| `src/alien_physics_lab/agents.py` | heuristic baseline agent |
-| `src/alien_physics_lab/grpo_env.py` | TRL multi-turn wrapper + reward functions |
-| `src/alien_physics_lab/grpo_data.py` | procedural episode/dataset generation |
-| `scripts/train_grpo.py` | GRPO training entrypoint |
+| `src/alien_physics_lab/grpo_env.py` | **TRL multi-turn wrapper + reward functions** (training) |
+| `src/alien_physics_lab/grpo_data.py` | **procedural episode/dataset generation** (training) |
+| `scripts/train_grpo.py` | **GRPO training entrypoint** — the main loop |
+| `src/alien_physics_lab/agents.py` | heuristic baseline agent (*not* training) |
+| `src/alien_physics_lab/{openai,hf,mlx}_runner.py` | **baseline backends** — run an OpenAI-API / local-HF / MLX model through the env for task validation + comparison; **not used in training** |
+| `src/alien_physics_lab/cli.py` | `alien-lab` CLI: `play` + `eval-{heuristic,openai,hf,mlx}` (baseline evaluation only) |
 | `scripts/analyze_aggregation.py` | offline analysis of logged rollouts |
 | `docs/grpo_training.md` | full training runbook (stack pins, gotchas) |
 | `docs/results/YYYY-MM-DD-grpo.md` | dated experiment logs |
 
-## Quickstart (environment)
+## Quickstart — poke at the environment by hand
 
-The project venv stays dependency-free (just the env + CLI):
+*(This explores the task/env and the baselines. For the actual point of the repo, see
+[GRPO training](#grpo-training) below.)* The project venv stays dependency-free (just the env + CLI):
 
 ```bash
 uv sync --no-editable
