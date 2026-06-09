@@ -43,6 +43,16 @@ the briefing; calculator always on), `--vary-prompt` (per-world scenario-framing
 intro paragraph varies). `scripts/analyze_aggregation.py <run-dir>` reports whether behavior
 adapts to each knob. Design + adversarial review: `docs/results/2026-06-04-grpo.md`.
 
+## Expansion design (pinned, not implemented)
+
+`docs/design/` holds the design exploration for growing the lab from the current g/diameter toy into
+a procedural active-sensing / model-selection benchmark + curriculum (a "ladder of doubt": estimate →
+identify-the-right-instrument → set-ID → integrative missions → "what kind of world is this?"
+curveballs). See `docs/design/README.md` (index + synthesis + open decisions). PINNED — current
+trained tasks are still gravity + diameter. Note two bugs flagged there: `parse_boxed_value` truncates
+LaTeX scientific notation (may be understating current diameter success), and independent-(M,R)
+sampling miscalibrates g (only relevant once the coupled-`effective_gravity` mode is on).
+
 ## Stack (pinned, Blackwell RTX PRO 6000 / SM120)
 
 torch 2.11.0+cu129 · vLLM 0.22.1 nightly · transformers 5.9.0 · TRL 1.5.1 (NO
